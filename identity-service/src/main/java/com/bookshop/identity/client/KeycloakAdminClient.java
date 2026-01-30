@@ -9,6 +9,9 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.reactive.function.BodyInserters;
+import org.springframework.web.reactive.function.client.WebClient;
+import reactor.core.publisher.Mono;
 
 import java.util.List;
 import java.util.Map;
@@ -19,10 +22,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class KeycloakAdminClient {
 
-    private final RestTemplate restTemplate = new RestTemplate();
-
-    @Value("${keycloak.admin.url}")
-    private String keycloakUrl;
+    private final WebClient webClient;
 
     @Value("${keycloak.realm}")
     private String realm;
@@ -33,108 +33,95 @@ public class KeycloakAdminClient {
     @Value("${keycloak.admin.client-secret}")
     private String adminClientSecret;
 
-
     public String getAdminToken() {
-        String url = keycloakUrl + "/realms/" + realm + "/protocol/openid-connect/token";
-
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
-
-        MultiValueMap<String, String> body = new LinkedMultiValueMap<>();
-        body.add("client_id", adminClientId);
-        body.add("client_secret", adminClientSecret);
-        body.add("grant_type", "client_credentials");
-
-        HttpEntity<MultiValueMap<String, String>> entity =
-                new HttpEntity<>(body, headers);
-
-        ResponseEntity<Map> response = restTemplate.exchange(
-                url,
-                HttpMethod.POST,
-                entity,
-                Map.class
-        );
-
-        return (String) response.getBody().get("access_token");
+        return webClient.post()
+                .uri("/realms/{realm}/protocol/openid-connect/token", realm)
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .body(BodyInserters.fromFormData("client_id", adminClientId)
+                        .with("client_secret", adminClientSecret)
+                        .with("grant_type", "client_credentials"))
+                .retrieve()
+                .bodyToMono(Map.class)
+                .map(m -> (String) m.get("access_token"))
+                .block();
     }
 
 
     public String createUser(RegisterRequest request) {
         String token = getAdminToken();
-        String url = keycloakUrl + "/admin/realms/" + realm + "/users";
 
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.setBearerAuth(token);
+        return webClient.post()
+                .uri("/admin/realms/{realm}/users", realm)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                .bodyValue(buildUser(request))
+                .exchangeToMono(response -> {
+                    if (response.statusCode().is2xxSuccessful()) {
+                        String location = response.headers()
+                                .asHttpHeaders()
+                                .getFirst(HttpHeaders.LOCATION);
 
-        Map<String, Object> user = Map.of(
-                "username", request.getUsername(),
-                "email", request.getEmail(),
-                "firstName", request.getFirstName() != null ? request.getFirstName() : "",
-                "lastName", request.getLastName() != null ? request.getLastName() : "",
+                        if (location != null) {
+                            return Mono.just(location.substring(location.lastIndexOf('/') + 1));
+                        }
+                        return Mono.error(new IllegalStateException("Missing Location header"));
+                    }
+                    return response.createException().flatMap(Mono::error);
+                })
+                .block();
+    }
+
+
+    public boolean existsByUsername(String username) {
+        return exists("/admin/realms/{realm}/users?username={username}",
+                Map.of("realm", realm, "username", username));
+    }
+
+    public boolean existsByEmail(String email) {
+        return exists("/admin/realms/{realm}/users?email={email}",
+                Map.of("realm", realm, "email", email));
+    }
+
+    private boolean exists(String uri, Map<String, ?> params) {
+        String token = getAdminToken();
+
+        return Boolean.TRUE.equals(webClient.get()
+                .uri(uri, params)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                .retrieve()
+                .bodyToMono(List.class)
+                .map(list -> !list.isEmpty())
+                .block());
+    }
+
+
+    public void deleteUser(String userId) {
+        String token = getAdminToken();
+
+        webClient.delete()
+                .uri("/admin/realms/{realm}/users/{id}", realm, userId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                .retrieve()
+                .toBodilessEntity()
+                .block();
+    }
+
+
+    private Map<String, Object> buildUser(RegisterRequest r) {
+        return Map.of(
+                "username", r.getUsername(),
+                "email", r.getEmail(),
+                "firstName", r.getFirstName() == null ? "" : r.getFirstName(),
+                "lastName", r.getLastName() == null ? "" : r.getLastName(),
                 "enabled", true,
                 "emailVerified", false,
                 "credentials", List.of(
                         Map.of(
                                 "type", "password",
-                                "value", request.getPassword(),
+                                "value", r.getPassword(),
                                 "temporary", false
                         )
                 )
         );
-
-        HttpEntity<Map<String, Object>> entity = new HttpEntity<>(user, headers);
-        ResponseEntity<Void> response = restTemplate.exchange(url, HttpMethod.POST, entity, Void.class);
-
-        if (response.getStatusCode().is2xxSuccessful() && response.getHeaders().getLocation() != null) {
-            String path = response.getHeaders().getLocation().getPath();
-            String userId = path.substring(path.lastIndexOf('/') + 1);
-            return userId;
-        }
-
-        throw new IllegalStateException("Keycloak create user failed: " + response.getStatusCode());
     }
-
-    public boolean existsByUsername(String username) {
-        String token = getAdminToken();
-        String url = keycloakUrl + "/admin/realms/" + realm + "/users?username=" + username;
-        HttpHeaders headers = new HttpHeaders();
-        headers.setBearerAuth(token);
-        HttpEntity<Void> entity = new HttpEntity<>(headers);
-        ResponseEntity<List> response = restTemplate.exchange(url, HttpMethod.GET, entity, List.class);
-        return response.getBody() != null && !response.getBody().isEmpty();
-    }
-
-    public boolean existsByEmail(String email) {
-        String token = getAdminToken();
-        String url = keycloakUrl + "/admin/realms/" + realm + "/users?email=" + email;
-
-        HttpHeaders headers = new HttpHeaders();
-        headers.setBearerAuth(token);
-
-        HttpEntity<Void> entity = new HttpEntity<>(headers);
-
-        ResponseEntity<List> response =
-                restTemplate.exchange(url, HttpMethod.GET, entity, List.class);
-
-        return response.getBody() != null && !response.getBody().isEmpty();
-    }
-
-    public void deleteUser(String userId) {
-        String token = getAdminToken();
-        String url = keycloakUrl + "/admin/realms/" + realm + "/users/" + userId;
-
-        HttpHeaders headers = new HttpHeaders();
-        headers.setBearerAuth(token);
-
-        HttpEntity<Void> entity = new HttpEntity<>(headers);
-
-        restTemplate.exchange(
-                url,
-                HttpMethod.DELETE,
-                entity,
-                Void.class
-        );
-    }
-
 }
+
