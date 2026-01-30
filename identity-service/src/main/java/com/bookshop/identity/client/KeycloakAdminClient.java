@@ -120,4 +120,21 @@ public class KeycloakAdminClient {
         return response.getBody() != null && !response.getBody().isEmpty();
     }
 
+    public void deleteUser(String userId) {
+        String token = getAdminToken();
+        String url = keycloakUrl + "/admin/realms/" + realm + "/users/" + userId;
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(token);
+
+        HttpEntity<Void> entity = new HttpEntity<>(headers);
+
+        restTemplate.exchange(
+                url,
+                HttpMethod.DELETE,
+                entity,
+                Void.class
+        );
+    }
+
 }

@@ -26,12 +26,26 @@ public class RegisterServiceImpl implements com.bookshop.identity.services.Regis
             throw new IllegalArgumentException("EMAIL_ALREADY_EXISTS");
         }
 
-        String userId = keycloakAdminClient.createUser(request);
+        String userId = null;
         try {
+            userId = keycloakAdminClient.createUser(request);
+
             profileServiceClient.createProfile(userId, request);
+
         } catch (Exception e) {
-            log.warn("Profile creation failed for userId={}, will not rollback Keycloak user", userId, e);
-            throw new IllegalStateException("Account created but profile creation failed. Please contact support.");
+
+            if (userId != null) {
+                try {
+                    keycloakAdminClient.deleteUser(userId);
+                    log.warn("Rolled back Keycloak user {}", userId);
+                } catch (Exception rollbackEx) {
+                    log.error("FAILED to rollback Keycloak user {}", userId, rollbackEx);
+                }
+            }
+
+            throw new IllegalStateException(
+                    "Registration failed. Please try again later."
+            );
         }
 
         return RegisterResponse.builder()
