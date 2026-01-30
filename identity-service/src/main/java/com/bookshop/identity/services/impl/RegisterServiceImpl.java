@@ -22,6 +22,10 @@ public class RegisterServiceImpl implements com.bookshop.identity.services.Regis
             throw new IllegalArgumentException("Username already exists");
         }
 
+        if (keycloakAdminClient.existsByEmail(request.getEmail())) {
+            throw new IllegalArgumentException("EMAIL_ALREADY_EXISTS");
+        }
+
         String userId = keycloakAdminClient.createUser(request);
         try {
             profileServiceClient.createProfile(userId, request);
