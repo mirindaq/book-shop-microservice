@@ -1,3 +1,24 @@
 spring:
   application:
-    name: profile
+    name: ${SPRING_APPLICATION_NAME:profile}
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/profile_db?createDatabaseIfNotExist=true}
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:root}
+    driver-class-name: ${SPRING_DATASOURCE_DRIVER_CLASS_NAME:com.mysql.cj.jdbc.Driver}
+  jpa:
+    hibernate:
+      ddl-auto: ${SPRING_JPA_HIBERNATE_DDL_AUTO:update}
+    show-sql: ${SPRING_JPA_SHOW_SQL:false}
+    properties:
+      hibernate:
+        dialect: ${SPRING_JPA_PROPERTIES_HIBERNATE_DIALECT:org.hibernate.dialect.MySQLDialect}
+    open-in-view: ${SPRING_JPA_OPEN_IN_VIEW:false}
+
+api:
+  prefix: ${API_PREFIX:/api/v1}
+
+server:
+  servlet:
+    context-path: ${SERVER_SERVLET_CONTEXT_PATH:/profile}
+  port: ${SERVER_PORT:8082}

@@ -1,3 +1,24 @@
 spring:
   application:
-    name: identity
+    name: ${SPRING_APPLICATION_NAME:identity}
+
+api:
+  prefix: ${API_PREFIX:/api/v1}
+
+keycloak:
+  admin:
+    url: ${KEYCLOAK_URL}
+    client-id: ${KEYCLOAK_ADMIN_CLIENT_ID}
+    client-secret: ${KEYCLOAK_ADMIN_CLIENT_SECRET}
+    username: ${KEYCLOAK_ADMIN_USERNAME}
+    password: ${KEYCLOAK_ADMIN_PASSWORD}
+  realm: ${KEYCLOAK_REALM}
+
+profile:
+  service:
+    url: ${PROFILE_SERVICE_URL:http://localhost:8082}
+
+server:
+  servlet:
+    context-path: ${SERVER_SERVLET_CONTEXT_PATH:/identity}
+  port: ${SERVER_PORT:8081}
